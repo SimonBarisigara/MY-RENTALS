@@ -51,9 +51,7 @@ $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
                 <a href="index.php?page=add_room" class="btn btn-success btn-sm">
                     <i class="fas fa-plus"></i> Add Room
                 </a>
-                <a href="billing_cycle.php" class="btn btn-info btn-sm">
-                    <i class="fas fa-plus"></i> Billing Cycle
-                </a>
+                
             </div>
         </div>
         <div class="card-body">

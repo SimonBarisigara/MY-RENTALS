@@ -9,31 +9,14 @@ $tenant = [
     'lastname' => '',
     'email' => '',
     'contact' => '',
-    'country_code' => '',
-    'payment_status' => 0
+    'country_code' => ''
 ];
 
-// Fetch all billing cycles
-$billing_cycles = $conn->query("SELECT * FROM billing_cycles")->fetch_all(MYSQLI_ASSOC);
-
-// Fetch all houses
-$houses = $conn->query("SELECT id, house_no, price FROM houses")->fetch_all(MYSQLI_ASSOC);
+// Fetch all available houses (houses without tenants)
+$houses = $conn->query("SELECT h.id, h.house_no FROM houses h LEFT JOIN tenants t ON h.id = t.house_no WHERE t.house_no IS NULL")->fetch_all(MYSQLI_ASSOC);
 
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['fetch_price'])) {
-        // Fetch price for the selected house
-        $house_id = intval($_POST['house_id']);
-        $query = $conn->query("SELECT price FROM houses WHERE id = '$house_id'");
-        if ($query->num_rows > 0) {
-            $house = $query->fetch_assoc();
-            echo json_encode(['success' => true, 'price' => $house['price']]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Invalid house selected.']);
-        }
-        exit; // Stop further execution for AJAX request
-    }
-
     if (isset($_POST['save_tenant'])) {
         // Save tenant data
         $firstname = mysqli_real_escape_string($conn, trim($_POST['firstname']));
@@ -44,17 +27,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $contact = mysqli_real_escape_string($conn, trim($_POST['contact']));
         $full_contact = $country_code . $contact; // Combine country code & number
         $house_id = intval($_POST['house_id']);
-        $billing_cycle_id = intval($_POST['billing_cycle_id']);
-        $payment_status = intval($_POST['payment_status']);
 
-        // Fetch the price of the selected house
-        $house_query = $conn->query("SELECT price FROM houses WHERE id = '$house_id'");
+        // Fetch the house_no of the selected house
+        $house_query = $conn->query("SELECT house_no FROM houses WHERE id = '$house_id'");
         if ($house_query->num_rows > 0) {
             $house = $house_query->fetch_assoc();
-            $price = $house['price'];
+            $house_no = $house['house_no'];
         } else {
             $msg = '<div class="alert alert-danger">❌ Invalid house selected. Please select a valid house.</div>';
-            $price = 0; // Default price if house is invalid
+            $house_no = ''; // Default house_no if house is invalid
         }
 
         // Check for duplicate tenant
@@ -63,8 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = '<div class="alert alert-danger">❌ Tenant with the same email or contact already exists.</div>';
         } else {
             // Insert tenant
-            $save = $conn->query("INSERT INTO tenants (firstname, middlename, lastname, email, contact, house_id, billing_cycle_id, price, payment_status) 
-                VALUES ('$firstname', '$middlename', '$lastname', '$email', '$full_contact', $house_id, $billing_cycle_id, $price, $payment_status)");
+            $save = $conn->query("INSERT INTO tenants (firstname, middlename, lastname, email, contact, house_no) 
+                VALUES ('$firstname', '$middlename', '$lastname', '$email', '$full_contact', '$house_no')");
             
             if ($save) {
                 $tenant_id = $conn->insert_id;
@@ -88,10 +69,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <style>
         .form-group { margin-bottom: 1rem; }
         .form-group label { font-weight: bold; }
-        .form-row { display: flex; gap: 15px; }
-        .form-row .form-group { flex: 1; }
+        .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .form-row .form-group { flex: 1; min-width: 250px; }
         .card { max-width: 800px; margin: 0 auto; }
         .input-group-text { background-color: #e9ecef; border: 1px solid #ced4da; }
+        .navbar-brand { font-size: 1.5rem; }
+        .container { padding-top: 2rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; }
+        .card-header h5 { margin: 0; }
     </style>
 </head>
 <body>
@@ -103,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </nav>
 
     <!-- Main Content -->
-    <div class="container py-4">
+    <div class="container">
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white">
                 <h5 class="mb-0">Add Tenant</h5>
@@ -155,39 +140,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label>Price (UGX)</label>
-                            <input type="text" class="form-control" id="price" readonly>
-                        </div>
-                    </div>
-
-                    <!-- Billing Cycle -->
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Billing Cycle <span class="text-danger">*</span></label>
-                            <div class="input-group">
-                                <select name="billing_cycle_id" class="form-select" required>
-                                    <option value="" disabled selected>Select Billing Cycle</option>
-                                    <?php foreach ($billing_cycles as $cycle): ?>
-                                        <option value="<?= $cycle['id'] ?>"><?= $cycle['cycle_name'] ?> (<?= $cycle['start_date'] ?> to <?= $cycle['end_date'] ?>)</option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <a href="billing_cycle.php" class="btn btn-outline-secondary" title="Add Billing Cycle">
-                                    <i class="fas fa-plus"></i>
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Payment Status -->
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Payment Status</label>
-                            <select name="payment_status" class="form-select">
-                                <option value="0">Unpaid</option>
-                                <option value="1">Paid</option>
-                            </select>
-                        </div>
                     </div>
 
                     <!-- Form Actions -->
@@ -218,32 +170,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     });
                 })
                 .catch(error => console.error('Error fetching country codes:', error));
-
-            // Fetch price when house is selected
-            $('#house_id').on('change', function () {
-                const house_id = $(this).val();
-                if (house_id) {
-                    $.ajax({
-                        url: '', // Submit to the same page
-                        method: 'POST',
-                        data: { fetch_price: true, house_id: house_id },
-                        success: function(response) {
-                            const result = JSON.parse(response);
-                            if (result.success) {
-                                $('#price').val(result.price);
-                            } else {
-                                $('#price').val('');
-                                alert(result.message || 'Invalid house selected.');
-                            }
-                        },
-                        error: function() {
-                            alert('Error fetching price. Please try again.');
-                        }
-                    });
-                } else {
-                    $('#price').val('');
-                }
-            });
         });
     </script>
 </body>

@@ -52,7 +52,7 @@
                                h.house_no
                         FROM payments p
                         INNER JOIN tenants t ON p.tenant_id = t.id
-                        LEFT JOIN houses h ON t.house_id = h.id
+                        LEFT JOIN houses h ON t.house_no = h.house_no
                         ORDER BY p.date_paid DESC");
 
                     while ($row = $payments->fetch_assoc()):
@@ -63,7 +63,7 @@
                             <td><?php echo ($row['house_no']) ? $row['house_no'] : 'N/A' ?></td>
                             <td class="text-end"><?php echo number_format($row['amount'], 2) ?></td>
                             <td class="text-center">
-                                <span class="badge bg-<?php echo ($row['payment_status'] == 'Paid') ? 'success' : 'warning'; ?>">
+                                <span class="badge bg-<?php echo ($row['payment_status'] == 'paid') ? 'success' : 'warning'; ?>">
                                     <?php echo ucfirst($row['payment_status']) ?>
                                 </span>
                             </td>
@@ -125,7 +125,7 @@
 
             // Update pagination controls
             paginationControls.empty();
-            for (let i = 1; i <= totalPages; i++) {
+            for (let i = 1; i <= tixiotalPages; i++) {
                 paginationControls.append(`
                     <li class="page-item ${i === currentPage ? 'active' : ''}">
                         <a class="page-link" href="#">${i}</a>
