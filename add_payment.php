@@ -11,9 +11,13 @@ if (isset($_POST['save_payment'])) {
     $reference_number = $_POST['reference_number'];
     $collector_name = $_POST['collector_name'];
     $house_no = $_POST['house_no']; // Fetch house_no from the form
-    $period_start = $_POST['period_start']; // Payment period start date
-    $period_end = $_POST['period_end']; // Payment period end date
+    $billing_cycle_id = $_POST['billing_cycle_id']; // Fetch billing cycle ID
     $late_fee = $_POST['late_fee']; // Fetch late fee from the form
+
+    // Fetch billing cycle details
+    $billing_cycle = $conn->query("SELECT start_date, end_date FROM billing_cycles WHERE id = $billing_cycle_id")->fetch_assoc();
+    $period_start = $billing_cycle['start_date'];
+    $period_end = $billing_cycle['end_date'];
 
     // Fetch tenant details
     $tenant = $conn->query("SELECT id, house_no, price FROM tenants WHERE id = $tenant_id")->fetch_assoc();
@@ -30,9 +34,9 @@ if (isset($_POST['save_payment'])) {
     $invoice = 'INV-' . date('Ymd') . '-' . str_pad(mt_rand(1, 999), 3, '0', STR_PAD_LEFT);
 
     // Insert payment
-    $stmt = $conn->prepare("INSERT INTO payments (tenant_id, house_id, amount, invoice, payment_method, currency, transaction_id, bank_name, reference_number, collector_name, outstanding_balance, payment_status, period_start, period_end, late_fee) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("iidsssssssssssd", $tenant_id, $house_no, $amount, $invoice, $payment_method, $currency, $transaction_id, $bank_name, $reference_number, $collector_name, $outstanding_balance, $payment_status, $period_start, $period_end, $late_fee);
+    $stmt = $conn->prepare("INSERT INTO payments (tenant_id, house_id, amount, invoice, payment_method, currency, transaction_id, bank_name, reference_number, collector_name, outstanding_balance, payment_status, period_start, period_end, late_fee, billing_cycle_id) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("iidsssssssssssdi", $tenant_id, $house_no, $amount, $invoice, $payment_method, $currency, $transaction_id, $bank_name, $reference_number, $collector_name, $outstanding_balance, $payment_status, $period_start, $period_end, $late_fee, $billing_cycle_id);
     $stmt->execute();
 
     // Update tenant payment status (without updating rent_due)
@@ -54,80 +58,79 @@ if (isset($_POST['save_payment'])) {
         </div>
         <div class="card-body">
             <form method="POST" id="paymentForm">
-                <!-- Tenant Selection -->
-                <div class="mb-3">
-                    <label class="form-label">Tenant</label>
-                    <div class="input-group">
-                        <select name="tenant_id" id="tenant_id" class="form-select" required onchange="fetchTenantDetails(this.value)">
-                            <option value="" selected disabled>Select Tenant</option>
-                            <?php 
-                            $tenants = $conn->query("SELECT id, CONCAT(lastname, ', ', firstname) AS name, house_no, price FROM tenants WHERE status = 1");
-                            while ($row = $tenants->fetch_assoc()): ?>
-                                <option value="<?php echo $row['id'] ?>" data-house_no="<?php echo $row['house_no'] ?>" data-price="<?php echo $row['price'] ?>">
-                                    <?php echo $row['name'] ?>
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                        <a href="index.php?page=add_tenant" class="btn btn-outline-primary"><i class="fa fa-plus"></i></a>
-                    </div>
-                </div>
-
-                <!-- House Number and Rent Per Month -->
+                <!-- Tenant and House Details -->
                 <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Tenant</label>
+                        <div class="input-group">
+                            <select name="tenant_id" id="tenant_id" class="form-select" required onchange="fetchTenantDetails(this.value)">
+                                <option value="" selected disabled>Select Tenant</option>
+                                <?php 
+                                $tenants = $conn->query("SELECT id, CONCAT(lastname, ', ', firstname) AS name, house_no, price FROM tenants WHERE status = 1");
+                                while ($row = $tenants->fetch_assoc()): ?>
+                                    <option value="<?php echo $row['id'] ?>" data-house_no="<?php echo $row['house_no'] ?>" data-price="<?php echo $row['price'] ?>">
+                                        <?php echo $row['name'] ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
+                            <a href="index.php?page=add_tenant" class="btn btn-outline-primary"><i class="fa fa-plus"></i></a>
+                        </div>
+                    </div>
                     <div class="col-md-6">
                         <label class="form-label">House Number</label>
                         <input type="text" name="house_no" id="house_no" class="form-control" readonly>
                     </div>
+                </div>
+
+                <!-- Rent Details -->
+                <div class="row mb-3">
                     <div class="col-md-6">
                         <label class="form-label">Rent Per Month</label>
                         <input type="text" name="rent_per_month" id="rent_per_month" class="form-control" readonly>
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Amount Paid</label>
+                        <input type="number" name="amount" class="form-control" required min="0">
+                    </div>
                 </div>
 
-                <!-- Amount Paid -->
-                <div class="mb-3">
-                    <label class="form-label">Amount Paid</label>
-                    <input type="number" name="amount" class="form-control" required min="0">
+                <!-- Billing Cycle -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Billing Cycle <span class="text-danger">*</span></label>
+                        <select name="billing_cycle_id" id="billing_cycle_id" class="form-select" required onchange="fetchBillingCycleDates(this.value)">
+                            <option value="" selected disabled>Select Billing Cycle</option>
+                            <?php 
+                            $billing_cycles = $conn->query("SELECT * FROM billing_cycles ORDER BY start_date DESC");
+                            while ($row = $billing_cycles->fetch_assoc()): ?>
+                                <option value="<?php echo $row['id'] ?>" data-start_date="<?php echo $row['start_date'] ?>" data-end_date="<?php echo $row['end_date'] ?>">
+                                    <?php echo $row['cycle_name'] ?> (<?php echo $row['start_date'] ?> to <?php echo $row['end_date'] ?>)
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Rent Due</label>
+                        <input type="text" name="rent_due" id="rent_due" class="form-control" readonly>
+                    </div>
                 </div>
 
-                <!-- Duration -->
-                <div class="mb-3">
-                    <label class="form-label">Duration</label>
-                    <select name="duration" id="duration" class="form-select" required onchange="calculateRentDue()">
-                        <option value="7">Weekly</option>
-                        <option value="30">Monthly</option>
-                        <option value="custom">Custom</option>
-                    </select>
-                </div>
-
-                <!-- Custom Days (Hidden by Default) -->
-                <div class="mb-3" id="custom_days_field" style="display: none;">
-                    <label class="form-label">Custom Days</label>
-                    <input type="number" name="custom_days" id="custom_days" class="form-control" min="1" onchange="calculateRentDue()">
-                </div>
-
-                <!-- Rent Due -->
-                <div class="mb-3">
-                    <label class="form-label">Rent Due</label>
-                    <input type="text" name="rent_due" id="rent_due" class="form-control" readonly>
+                <!-- Payment Period (Auto-filled based on billing cycle) -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Start Date</label>
+                        <input type="text" name="period_start" id="period_start" class="form-control" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">End Date</label>
+                        <input type="text" name="period_end" id="period_end" class="form-control" readonly>
+                    </div>
                 </div>
 
                 <!-- Late Fee -->
                 <div class="mb-3">
                     <label class="form-label">Late Fee</label>
                     <input type="number" name="late_fee" id="late_fee" class="form-control" min="0" value="0">
-                </div>
-
-                <!-- Payment Period -->
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Start Date</label>
-                        <input type="date" name="period_start" id="period_start" class="form-control" required onchange="calculateEndDate()">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">End Date</label>
-                        <input type="date" name="period_end" id="period_end" class="form-control" required readonly>
-                    </div>
                 </div>
 
                 <!-- Payment Method -->
@@ -203,44 +206,32 @@ if (isset($_POST['save_payment'])) {
         calculateRentDue();
     }
 
-    // Show/hide custom days field
-    function toggleCustomDays() {
-        const duration = document.getElementById('duration').value;
-        const customDaysField = document.getElementById('custom_days_field');
-        customDaysField.style.display = duration === 'custom' ? 'block' : 'none';
-        calculateRentDue(); // Recalculate rent due when duration changes
+    // Fetch billing cycle dates when a billing cycle is selected
+    function fetchBillingCycleDates(billingCycleId) {
+        const selectedOption = document.querySelector(`#billing_cycle_id option[value="${billingCycleId}"]`);
+        const startDate = selectedOption.getAttribute('data-start_date');
+        const endDate = selectedOption.getAttribute('data-end_date');
+
+        // Display start and end dates
+        document.getElementById('period_start').value = startDate;
+        document.getElementById('period_end').value = endDate;
+
+        // Recalculate rent due
+        calculateRentDue();
     }
 
-    // Calculate rent due based on rent per month and duration
+    // Calculate rent due based on rent per month and billing cycle
     function calculateRentDue() {
         const rentPerMonth = parseFloat(document.getElementById('rent_per_month').value);
-        const duration = document.getElementById('duration').value;
-        const customDays = document.getElementById('custom_days').value;
-
-        if (!isNaN(rentPerMonth)) {
-            let days = duration === 'custom' ? parseInt(customDays) : parseInt(duration);
-            if (!isNaN(days)) {
-                const rentDue = (rentPerMonth / 30) * days; // Calculate rent due
-                document.getElementById('rent_due').value = rentDue.toFixed(2); // Display rent due
-            }
-        }
-    }
-
-    // Calculate end date based on start date and duration
-    function calculateEndDate() {
         const startDate = document.getElementById('period_start').value;
-        const duration = document.getElementById('duration').value;
-        const customDays = document.getElementById('custom_days').value;
+        const endDate = document.getElementById('period_end').value;
 
-        if (startDate) {
+        if (!isNaN(rentPerMonth) {
             const start = new Date(startDate);
-            let days = duration === 'custom' ? parseInt(customDays) : parseInt(duration);
-
-            if (!isNaN(days)) {
-                const endDate = new Date(start);
-                endDate.setDate(start.getDate() + days);
-                document.getElementById('period_end').value = endDate.toISOString().split('T')[0];
-            }
+            const end = new Date(endDate);
+            const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)); // Calculate days between dates
+            const rentDue = (rentPerMonth / 30) * days; // Calculate rent due
+            document.getElementById('rent_due').value = rentDue.toFixed(2); // Display rent due
         }
     }
 
@@ -255,6 +246,5 @@ if (isset($_POST['save_payment'])) {
     // Initialize visibility on page load
     document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('payment_method').dispatchEvent(new Event('change'));
-        toggleCustomDays(); // Initialize custom days field visibility
     });
 </script>

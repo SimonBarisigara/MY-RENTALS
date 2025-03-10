@@ -33,14 +33,28 @@ $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
     <!-- DataTables CSS -->
     <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <style>
+        .card-header h5 { display: flex; align-items: center; gap: 10px; }
+        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .table th, .table td { padding: 0.75rem; }
+    </style>
 </head>
 <body>
 <div class="container py-4">
     <!-- Room List Panel -->
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-dark text-white d-flex justify-content-between">
-            <h5 class="mb-0">Room List</h5>
-            <a href="index.php?page=add_room" class="btn btn-success btn-sm"><i class="fas fa-plus"></i> Add Room</a>
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas fa-home"></i> Room List
+            </h5>
+            <div>
+                <a href="index.php?page=add_room" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus"></i> Add Room
+                </a>
+                <a href="billing_cycle.php" class="btn btn-info btn-sm">
+                    <i class="fas fa-plus"></i> Billing Cycle
+                </a>
+            </div>
         </div>
         <div class="card-body">
             <?php if (!empty($msg)) echo $msg; ?>
@@ -53,7 +67,7 @@ $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
                             <th class="text-center">Type</th>
                             <th class="text-center">Floor</th>
                             <th class="text-center">Description</th>
-                            <th class="text-center">Price (Ugshs)</th>
+                            <th class="text-center">Price (UGX)</th>
                             <th class="text-center">Actions</th>
                         </tr>
                     </thead>
@@ -73,7 +87,6 @@ $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
                                     <a href="index.php?page=add_room&id=<?php echo $row['id']; ?>" class="btn btn-sm btn-primary">
                                         <i class="fas fa-edit"></i> Edit
                                     </a>
-
                                     <form method="POST" onsubmit="return confirm('Are you sure you want to delete this room?');" style="display:inline;">
                                         <input type="hidden" name="id" value="<?php echo htmlspecialchars($row['id']); ?>">
                                         <button type="submit" name="delete_house" class="btn btn-sm btn-danger">

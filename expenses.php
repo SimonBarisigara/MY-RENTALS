@@ -1,278 +1,199 @@
 <?php
-include 'db_connect.php';
+include('db_connect.php');
 
-// Handle actions (Create Expense, Change Status, Delete Expense)
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // Action for creating an expense
-    if (isset($_POST['create_expense'])) {
-        $category_id = $_POST['category_id'];
-        $house_no = $_POST['house_no']; // Get selected house_no
-        $amount = $_POST['amount'];
-        $description = $_POST['description'];
-        $date_incurred = $_POST['date_incurred'];
+// Initialize cart if not set
+if (!isset($_SESSION['expense_cart'])) {
+    $_SESSION['expense_cart'] = [];
+}
 
-        // Insert the expense data into the database
-        $query = "INSERT INTO expenses (category_id, house_no, amount, description, date_incurred, status) 
-                  VALUES ('$category_id', '$house_no', '$amount', '$description', '$date_incurred', 'Pending')";
+// Handle AJAX request for fetching items
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_items'])) {
+    $category_id = (int)$_POST['fetch_items'];
+    $stmt = $mysqli->prepare("SELECT id, name FROM expense_items WHERE category_id = ?");
+    $stmt->bind_param("i", $category_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-        if ($conn->query($query) === TRUE) {
-            $response = ['status' => 'success', 'message' => 'Expense added successfully'];
-        } else {
-            $response = ['status' => 'error', 'message' => 'Error: ' . $conn->error];
-        }
+    echo '<option value="">Select Item</option>';
+    while ($row = $result->fetch_assoc()) {
+        echo "<option value='{$row['id']}'>{$row['name']}</option>";
     }
-
-    // Action to change the status of an expense
-    if (isset($_POST['change_status'])) {
-        $expense_id = $_POST['expense_id'];
-        $new_status = $_POST['status'];
-
-        $query = "UPDATE expenses SET status='$new_status' WHERE id='$expense_id'";
-
-        if ($conn->query($query) === TRUE) {
-            $response = ['status' => 'success', 'message' => 'Expense status updated successfully'];
-        } else {
-            $response = ['status' => 'error', 'message' => 'Error: ' . $conn->error];
-        }
-    }
-
-    // Action to delete an expense
-    if (isset($_POST['delete_expense'])) {
-        $expense_id = $_POST['expense_id'];
-
-        $query = "DELETE FROM expenses WHERE id='$expense_id'";
-
-        if ($conn->query($query) === TRUE) {
-            $response = ['status' => 'success', 'message' => 'Expense deleted successfully'];
-        } else {
-            $response = ['status' => 'error', 'message' => 'Error: ' . $conn->error];
-        }
-    }
+    exit;
 }
 
-// Fetch categories for the form
-$categories_query = "SELECT * FROM expense_categories";
-$categories_result = $conn->query($categories_query);
-$categories = [];
-while ($row = $categories_result->fetch_assoc()) {
-    $categories[] = $row;
+// Add Category
+if (isset($_POST['save_category'])) {
+    $category_name = $_POST['category_name'];
+    $stmt = $mysqli->prepare("INSERT INTO expense_categories (name) VALUES (?)");
+    $stmt->bind_param("s", $category_name);
+    $stmt->execute();
 }
 
-// Fetch available house numbers for the form (from the houses table)
-$houses_query = "SELECT house_no FROM houses";
-$houses_result = $conn->query($houses_query);
-$houses = [];
-while ($row = $houses_result->fetch_assoc()) {
-    $houses[] = $row;
+// Add Item
+if (isset($_POST['save_item'])) {
+    $item_name = $_POST['item_name'];
+    $item_category = (int)$_POST['item_category'];
+    $stmt = $mysqli->prepare("INSERT INTO expense_items (name, category_id) VALUES (?, ?)");
+    $stmt->bind_param("si", $item_name, $item_category);
+    $stmt->execute();
 }
 
-// Fetch all expenses for display
-$expenses_query = "SELECT expenses.*, expense_categories.name AS category_name 
-                   FROM expenses 
-                   LEFT JOIN expense_categories ON expenses.category_id = expense_categories.id";
-$expenses_result = $conn->query($expenses_query);
-$expenses = [];
-while ($row = $expenses_result->fetch_assoc()) {
-    $expenses[] = $row;
+// Add Expense to Cart
+if (isset($_POST['add_to_cart'])) {
+    $item_id = $_POST['item_id'];
+    $item_name = $_POST['item_name'];
+    $quantity = (int)$_POST['quantity'];
+    $price = (float)$_POST['price'];
+    $total = $quantity * $price;
+
+    $_SESSION['expense_cart'][] = [
+        'item_id' => $item_id,
+        'item_name' => $item_name,
+        'quantity' => $quantity,
+        'price' => $price,
+        'total' => $total
+    ];
 }
+
+// Remove Item from Cart
+if (isset($_GET['remove'])) {
+    $index = (int)$_GET['remove'];
+    unset($_SESSION['expense_cart'][$index]);
+    $_SESSION['expense_cart'] = array_values($_SESSION['expense_cart']);
+}
+
+// Calculate total
+$grand_total = array_sum(array_column($_SESSION['expense_cart'], 'total'));
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expense Management</title>
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome Icons -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Custom CSS -->
-    <style>
-        body {
-            font-family: 'Poppins', sans-serif;
-            background-color: #f8f9fa;
-        }
-        .card {
-            border: none;
-            border-radius: 15px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        .card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
-        }
-        .card-body {
-            padding: 2rem;
-        }
-        .modal-header {
-            background-color: #007bff;
-            color: white;
-        }
-        .modal-footer {
-            background-color: #f1f1f1;
-        }
-        .alert {
-            margin-bottom: 1rem;
-        }
-        .btn-status {
-            margin-left: 5px;
-        }
-    </style>
+    <title>Add Expenses</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
-<body>
-    <div class="container mt-5">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <h4><b>Expense Management</b></h4>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#expenseModal">Create Expense</button>
-                </div>
+<body class="container py-5">
 
-                <!-- Response message -->
-                <?php if (isset($response)): ?>
-                    <div class="alert alert-<?php echo $response['status']; ?>" role="alert">
-                        <?php echo $response['message']; ?>
-                    </div>
-                <?php endif; ?>
+    <h2 class="mb-4">Add Expenses</h2>
 
-                <!-- Search and Sort Section -->
-                <div class="d-flex justify-content-between mt-4">
-                    <input type="text" id="searchInput" class="form-control w-25" placeholder="Search expenses...">
-                    <button class="btn btn-secondary" onclick="sortTable(0)">Sort by Category</button> <!-- Sort button -->
-                </div>
-
-                <!-- Expense List -->
-                <h5 class="mt-4">Expense List</h5>
-                <table class="table table-striped" id="expenseTable">
-                    <thead>
-                        <tr>
-                            <th>Category</th>
-                            <th>House No</th>
-                            <th>Amount</th>
-                            <th>Description</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($expenses as $expense): ?>
-                            <tr>
-                                <td><?php echo $expense['category_name']; ?></td>
-                                <td><?php echo $expense['house_no']; ?></td>
-                                <td><?php echo number_format($expense['amount'], 2); ?></td>
-                                <td><?php echo $expense['description']; ?></td>
-                                <td>
-                                    <form method="POST" style="display: inline;">
-                                        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                                            <option value="Pending" <?php echo ($expense['status'] == 'Pending') ? 'selected' : ''; ?>>Pending</option>
-                                            <option value="Cleared" <?php echo ($expense['status'] == 'Cleared') ? 'selected' : ''; ?>>Cleared</option>
-                                        </select>
-                                        <input type="hidden" name="expense_id" value="<?php echo $expense['id']; ?>">
-                                        <input type="hidden" name="change_status" value="1">
-                                    </form>
-                                </td>
-                                <td>
-                                    <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="expense_id" value="<?php echo $expense['id']; ?>">
-                                        <input type="hidden" name="delete_expense" value="1">
-                                        <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash-alt"></i> Delete</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Create Expense Modal -->
-    <div class="modal fade" id="expenseModal" tabindex="-1" aria-labelledby="expenseModalLabel" aria-hidden="true">
+    <!-- Category Modal -->
+    <button class="btn btn-secondary mb-3" data-bs-toggle="modal" data-bs-target="#categoryModal">+ Add Category</button>
+    <div class="modal fade" id="categoryModal" tabindex="-1">
         <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="expenseModalLabel">Create Expense</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+            <form method="post" class="modal-content">
+                <div class="modal-header"><h5>Add Category</h5></div>
                 <div class="modal-body">
-                    <form method="POST" id="expense-form">
-                        <div class="mb-3">
-                            <label for="category_id" class="form-label">Category</label>
-                            <select id="category_id" name="category_id" class="form-select" required>
-                                <option value="">Select Category</option>
-                                <?php foreach ($categories as $category): ?>
-                                    <option value="<?php echo $category['id']; ?>"><?php echo $category['name']; ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="house_no" class="form-label">House No</label>
-                            <select id="house_no" name="house_no" class="form-select" required>
-                                <option value="">Select House No</option>
-                                <?php foreach ($houses as $house): ?>
-                                    <option value="<?php echo $house['house_no']; ?>"><?php echo $house['house_no']; ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="amount" class="form-label">Amount</label>
-                            <input type="number" id="amount" name="amount" class="form-control" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="description" class="form-label">Description</label>
-                            <textarea id="description" name="description" class="form-control" required></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="date_incurred" class="form-label">Date Incurred</label>
-                            <input type="date" id="date_incurred" name="date_incurred" class="form-control" required>
-                        </div>
-                        <button type="submit" name="create_expense" class="btn btn-primary">Create Expense</button>
-                    </form>
+                    <input type="text" name="category_name" class="form-control" placeholder="Category Name" required>
                 </div>
-            </div>
+                <div class="modal-footer">
+                    <button type="submit" name="save_category" class="btn btn-primary">Save</button>
+                </div>
+            </form>
         </div>
     </div>
 
-    <!-- Bootstrap 5 JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Item Modal -->
+    <button class="btn btn-secondary mb-3" data-bs-toggle="modal" data-bs-target="#itemModal">+ Add Item</button>
+    <div class="modal fade" id="itemModal" tabindex="-1">
+        <div class="modal-dialog">
+            <form method="post" class="modal-content">
+                <div class="modal-header"><h5>Add Item</h5></div>
+                <div class="modal-body">
+                    <input type="text" name="item_name" class="form-control mb-2" placeholder="Item Name" required>
+                    <select name="item_category" class="form-select" required>
+                        <option value="">Select Category</option>
+                        <?php
+                        $result = $mysqli->query("SELECT * FROM expense_categories");
+                        while ($row = $result->fetch_assoc()) {
+                            echo "<option value='{$row['id']}'>{$row['name']}</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" name="save_item" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-    <!-- Custom JS for Search and Sorting -->
-    <script>
-        // Function to filter expenses based on search input
-        document.getElementById("searchInput").addEventListener("input", function() {
-            let searchValue = this.value.toLowerCase();
-            let rows = document.querySelectorAll("#expenseTable tbody tr");
+    <!-- Expense Form -->
+    <form method="post" class="row g-3">
 
-            rows.forEach(row => {
-                let category = row.cells[0].textContent.toLowerCase();
-                let houseNo = row.cells[1].textContent.toLowerCase();
-                let description = row.cells[3].textContent.toLowerCase();
-
-                if (category.includes(searchValue) || houseNo.includes(searchValue) || description.includes(searchValue)) {
-                    row.style.display = "";
-                } else {
-                    row.style.display = "none";
+        <div class="col-md-4">
+            <label for="category" class="form-label">Expense Category</label>
+            <select id="category" class="form-select" required>
+                <option value="">Select Category</option>
+                <?php
+                $result = $mysqli->query("SELECT * FROM expense_categories");
+                while ($row = $result->fetch_assoc()) {
+                    echo "<option value='{$row['id']}'>{$row['name']}</option>";
                 }
+                ?>
+            </select>
+        </div>
+
+        <div class="col-md-4">
+            <label for="item" class="form-label">Expense Item</label>
+            <select id="item" name="item_id" class="form-select" required>
+                <option value="">Select Item</option>
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label for="quantity" class="form-label">Quantity</label>
+            <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+        </div>
+
+        <div class="col-md-2">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" name="price" step="0.01" class="form-control" required>
+        </div>
+
+        <input type="hidden" name="item_name" id="item_name">
+
+        <div class="col-12">
+            <button type="submit" name="add_to_cart" class="btn btn-primary">Add to Cart</button>
+        </div>
+    </form>
+
+    <!-- Cart -->
+    <h3 class="mt-5">Cart</h3>
+    <table class="table table-bordered">
+        <thead>
+            <tr><th>Item</th><th>Quantity</th><th>Price</th><th>Total</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+            <?php foreach ($_SESSION['expense_cart'] as $index => $item): ?>
+                <tr>
+                    <td><?= htmlspecialchars($item['item_name']) ?></td>
+                    <td><?= $item['quantity'] ?></td>
+                    <td><?= number_format($item['price'], 2) ?></td>
+                    <td><?= number_format($item['total'], 2) ?></td>
+                    <td><a href="?remove=<?= $index ?>" class="btn btn-danger btn-sm">Remove</a></td>
+                </tr>
+            <?php endforeach; ?>
+        </tbody>
+        <tfoot>
+            <tr><th colspan="3">Grand Total</th><th colspan="2"><?= number_format($grand_total, 2) ?></th></tr>
+        </tfoot>
+    </table>
+
+    <a href="submit_expenses.php" class="btn btn-success">Submit Expenses</a>
+
+    <script>
+        $('#category').change(function() {
+            $.post('', { fetch_items: $(this).val() }, function(response) {
+                $('#item').html(response);
             });
         });
-
-        // Function to sort the table by category (column index 0)
-        function sortTable(colIndex) {
-            let table = document.getElementById("expenseTable");
-            let rows = Array.from(table.rows).slice(1); // Exclude header row
-            let sortedRows = rows.sort((a, b) => {
-                let textA = a.cells[colIndex].textContent.trim().toLowerCase();
-                let textB = b.cells[colIndex].textContent.trim().toLowerCase();
-                return textA.localeCompare(textB);
-            });
-
-            // Reorder rows in the table
-            sortedRows.forEach(row => table.appendChild(row));
-        }
+        $('#item').change(function() {
+            $('#item_name').val($("#item option:selected").text());
+        });
     </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

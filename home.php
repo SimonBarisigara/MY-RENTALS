@@ -80,8 +80,8 @@
                         <i class="fas fa-file-invoice text-4xl opacity-20 absolute top-4 right-4"></i>
                         <h4 class="text-3xl font-bold">
                             <?php
-                            $payment = $conn->query("SELECT SUM(amount) AS paid FROM payments WHERE DATE(date_created) = '" . date('Y-m-d') . "'");
-                            $payment_data = $payment->fetch_array();
+$payment = $conn->query("SELECT SUM(amount) AS paid FROM payments WHERE DATE(created_at) = '" . date('Y-m-d') . "'");
+$payment_data = $payment->fetch_array();
                             echo $payment->num_rows > 0 && isset($payment_data['paid']) ? number_format($payment_data['paid'], 2) : '0.00';
                             ?>
                         </h4>
