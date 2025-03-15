@@ -1,5 +1,5 @@
 <?php
-include 'db_connect.php';
+include('db_connect.php');
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $house_no = $_POST['house_no'];

@@ -48,85 +48,129 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Floors Management</title>
-    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="" />
+    <meta name="author" content="" />
+    <title>Floors Management - SB Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/style.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="css/styles.css" rel="stylesheet" />
+    <script src="https://use.fontawesome.com/releases/v6.3.0/js/all.js" crossorigin="anonymous"></script>
+    <style>
+        .table-modern th, .table-modern td {
+            vertical-align: middle;
+        }
+        .table-modern thead {
+            background-color: #343a40;
+            color: white;
+        }
+        .table-modern tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        .table-responsive {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+    </style>
 </head>
-<body>
-<div class="container py-4">
-    <div class="d-flex justify-content-between mb-3">
-        <h4>Floors Management</h4>
-        <a href="index.php?page=houses" class="btn btn-primary"><i class="fas fa-home"></i> View Rooms</a>
-    </div>
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Floors List</h5>
-            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#floorModal">
-                <i class="fas fa-plus"></i> Add Floor
-            </button>
-        </div>
-        <div class="card-body">
-            <?php if (!empty($msg)) echo $msg; ?>
-            <div class="table-responsive">
-                <table class="table table-hover table-bordered align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th class="text-center">#</th>
-                            <th class="text-center">Floor Number</th>
-                            <th class="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php 
-                        $i = 1;
-                        $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
-                        while ($row = $floors->fetch_assoc()):
-                        ?>
-                            <tr>
-                                <td class="text-center"><?php echo $i++; ?></td>
-                                <td class="text-center"><?php echo htmlspecialchars($row['floor_number']); ?></td>
-                                <td class="text-center">
-                                    <form method="POST" onsubmit="return confirm('Are you sure you want to delete this floor?');" style="display:inline;">
-                                        <input type="hidden" name="floor_id" value="<?php echo $row['floor_id']; ?>">
-                                        <button type="submit" name="delete_floor" class="btn btn-sm btn-danger">
-                                            <i class="fas fa-trash"></i> Delete
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                        <?php endwhile; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+<body class="sb-nav-fixed">
+    <div id="layoutSidenav">
+        <main>
+            <div class="container-fluid px-4">
+                <h1 class="mt-4">Floors Management</h1>
+                <ol class="breadcrumb mb-4">
+                    <li class="breadcrumb-item"><a href="index.html">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Floors Management</li>
+                </ol>
 
-<div class="modal fade" id="floorModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">Add Floor</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form method="POST">
-                    <div class="mb-3">
-                        <label class="form-label">Floor Number <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="floor_number" required pattern="[A-Za-z0-9\s]+" title="Alphanumeric characters only">
-                    </div>
-                    <div class="text-end">
-                        <button type="submit" name="save_floor" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
+                <!-- Display Messages -->
+                <?php if (!empty($msg)) echo $msg; ?>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+                <div class="row">
+                    <!-- Add Floors Form -->
+                    <div class="col-md-4">
+                        <div class="card mb-4 shadow-sm">
+                            <div class="card-header bg-dark text-white">
+                                <i class="fas fa-plus me-1"></i> Add Floor
+                            </div>
+                            <div class="card-body">
+                                <form method="POST">
+                                    <div class="mb-3">
+                                        <label class="form-label">Floor Number <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="floor_number" required pattern="[A-Za-z0-9\s]+" title="Alphanumeric characters only">
+                                    </div>
+                                    <div class="text-end">
+                                        <button type="submit" name="save_floor" class="btn btn-primary"><i class="fas fa-save me-1"></i> Save</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Floors List Table -->
+                    <div class="col-md-8">
+                        <div class="card mb-4 shadow-sm">
+                            <div class="card-header bg-dark text-white">
+                                <i class="fas fa-table me-1"></i> Floors List
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-modern table-bordered table-striped" id="floorsTable">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">#</th>
+                                                <th scope="col">Floor Number</th>
+                                                <th scope="col">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php
+                                            $i = 1;
+                                            $floors = $conn->query("SELECT * FROM floors ORDER BY floor_number ASC");
+                                            while ($row = $floors->fetch_assoc()):
+                                            ?>
+                                                <tr>
+                                                    <td><?php echo $i++; ?></td>
+                                                    <td><?php echo htmlspecialchars($row['floor_number']); ?></td>
+                                                    <td>
+                                                        <form method="POST" onsubmit="return confirm('Are you sure you want to delete this floor?');" style="display:inline;">
+                                                            <input type="hidden" name="floor_id" value="<?php echo $row['floor_id']; ?>">
+                                                            <button type="submit" name="delete_floor" class="btn btn-sm btn-danger">
+                                                                <i class="fas fa-trash me-1"></i> Delete
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            <?php endwhile; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/umd/simple-datatables.min.js" crossorigin="anonymous"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const dataTable = new simpleDatatables.DataTable('#floorsTable', {
+                searchable: true,
+                fixedHeight: true,
+                perPage: 10,
+                perPageSelect: [5, 10, 15, 20],
+                labels: {
+                    placeholder: "Search floors...",
+                    perPage: "{select} floors per page",
+                    noRows: "No floors found",
+                    info: "Showing {start} to {end} of {rows} floors"
+                }
+            });
+        });
+    </script>
 </body>
 </html>
