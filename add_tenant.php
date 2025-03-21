@@ -12,7 +12,9 @@ $tenant = [
     'country_code' => '',
     'house_no' => '',
     'price' => '',
-    'start_date' => '' // Added start_date
+    'start_date' => '',
+    'billing_cycle_type' => '',
+    'billing_cycle_days' => ''
 ];
 
 // Fetch all available houses (houses without tenants)
@@ -28,7 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
     $contact = mysqli_real_escape_string($conn, trim($_POST['contact']));
     $full_contact = $country_code . $contact;
     $house_id = intval($_POST['house_id']);
-    $start_date = $_POST['start_date']; // New start_date field
+    $start_date = $_POST['start_date'];
+    $billing_cycle_type = mysqli_real_escape_string($conn, trim($_POST['billing_cycle_type']));
+    $billing_cycle_days = ($billing_cycle_type === 'custom' && !empty($_POST['billing_cycle_days'])) ? intval($_POST['billing_cycle_days']) : null;
 
     // Fetch house details
     $stmt = $conn->prepare("SELECT house_no, price FROM houses WHERE id = ?");
@@ -60,14 +64,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
     $chk = $stmt->get_result()->num_rows;
     if ($chk > 0) {
         $msg = '<div class="alert alert-danger">❌ Tenant with the same email or contact already exists.</div>';
+    } elseif ($billing_cycle_type === 'custom' && (!$billing_cycle_days || $billing_cycle_days <= 0)) {
+        $msg = '<div class="alert alert-danger">❌ Please enter a valid number of days for custom billing cycle.</div>';
     } else {
-        // Insert tenant with prepared statement (added start_date)
-        $stmt = $conn->prepare("INSERT INTO tenants (firstname, middlename, lastname, email, contact, house_no, price, start_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("ssssssds", $firstname, $middlename, $lastname, $email, $full_contact, $house_no, $price, $start_date);
+        // Insert tenant with prepared statement (added billing cycle fields)
+        $stmt = $conn->prepare("INSERT INTO tenants (firstname, middlename, lastname, email, contact, house_no, price, start_date, billing_cycle_type, billing_cycle_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssssdsis", $firstname, $middlename, $lastname, $email, $full_contact, $house_no, $price, $start_date, $billing_cycle_type, $billing_cycle_days);
         if ($stmt->execute()) {
             $msg = '<div class="alert alert-success">✅ Tenant added successfully.</div>';
         } else {
-            $msg = '<div class="alert alert-danger">❌ Failed to add tenant. Try again.</div>';
+            $msg = '<div class="alert alert-danger">❌ Failed to add tenant: ' . $conn->error . '</div>';
         }
     }
 }
@@ -92,9 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
             flex-direction: column;
             background-color: #f8f9fa;
         }
-        .navbar-brand {
-            font-size: 1.5rem;
-        }
         .main-content {
             flex: 1 0 auto;
             display: flex;
@@ -107,6 +110,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
             max-width: 900px;
             height: auto;
             margin: 0;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            border: none;
         }
         .card-body {
             padding: 2rem;
@@ -120,12 +125,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
         .alert {
             margin-bottom: 1.5rem;
         }
-        footer {
-            flex-shrink: 0;
-            background-color: #f8f9fa;
-            padding: 1rem 0;
-            text-align: center;
-            color: #6c757d;
+        #billing_cycle_days_group {
+            display: none;
         }
         @media (max-width: 576px) {
             .card-body {
@@ -153,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
             </div>
             <div class="card-body">
                 <?php if (!empty($msg)) echo $msg; ?>
-                <form method="POST" id="tenantForm">
+                <form method="POST" id="tenantForm" novalidate>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">First Name <span class="text-danger">*</span></label>
@@ -202,6 +203,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
                             <input type="date" class="form-control" name="start_date" value="<?php echo htmlspecialchars($tenant['start_date']); ?>" required>
                         </div>
                     </div>
+
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Billing Cycle <span class="text-danger">*</span></label>
+                            <select name="billing_cycle_type" id="billing_cycle_type" class="form-select" required>
+                                <option value="" disabled selected>Select Billing Cycle</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="quarterly">Quarterly</option>
+                                <option value="yearly">Yearly</option>
+                                <option value="custom">Custom Days</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6" id="billing_cycle_days_group">
+                            <label class="form-label">Custom Days <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" name="billing_cycle_days" id="billing_cycle_days" min="1" placeholder="Enter number of days" value="<?php echo htmlspecialchars($tenant['billing_cycle_days']); ?>">
+                        </div>
+                    </div>
+
                     <div class="d-flex justify-content-end gap-2 mt-4">
                         <button type="submit" name="save_tenant" class="btn btn-primary"><i class="fas fa-save me-1"></i> Save</button>
                         <a href="index.php" class="btn btn-secondary"><i class="fas fa-times me-1"></i> Cancel</a>
@@ -231,16 +250,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tenant'])) {
                             countryCodeSelect.add(option);
                         }
                     });
-                    // Reinitialize Select2 after updating options
                     $(countryCodeSelect).select2();
                 })
                 .catch(error => console.error('Error fetching country codes:', error));
 
-            // Update rent amount when house is selected
-            document.getElementById('house_id').addEventListener('change', function() {
-                const selectedOption = this.options[this.selectedIndex];
-                const rentAmount = selectedOption.getAttribute('data-price');
-                document.getElementById('rent_amount').value = rentAmount ? `UGX ${parseFloat(rentAmount).toFixed(2)}` : '';
+            // Toggle custom days field
+            const billingCycleType = document.getElementById('billing_cycle_type');
+            const billingCycleDaysGroup = document.getElementById('billing_cycle_days_group');
+            const billingCycleDays = document.getElementById('billing_cycle_days');
+
+            billingCycleType.addEventListener('change', function() {
+                if (this.value === 'custom') {
+                    billingCycleDaysGroup.style.display = 'block';
+                    billingCycleDays.required = true;
+                } else {
+                    billingCycleDaysGroup.style.display = 'none';
+                    billingCycleDays.required = false;
+                    billingCycleDays.value = '';
+                }
+            });
+
+            // Form validation
+            const form = document.getElementById('tenantForm');
+            form.addEventListener('submit', function(e) {
+                if (!this.checkValidity()) {
+                    e.preventDefault();
+                    this.classList.add('was-validated');
+                }
             });
         });
     </script>

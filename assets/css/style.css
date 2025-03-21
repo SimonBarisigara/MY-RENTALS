@@ -1622,7 +1622,6 @@ nav#sidebar {
     z-index: 99;
     left: 0;
     width: 250px;
-    background: url(../uploads/art-cover.jpg);
     background-repeat: no-repeat;
     background-size: cover;
 }

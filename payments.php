@@ -1,14 +1,13 @@
 <?php
 include 'db_connect.php';
 
-
 // Filter variables
 $date_filter = isset($_POST['date_filter']) ? $_POST['date_filter'] : null;
 $status_filter = isset($_POST['status_filter']) ? $_POST['status_filter'] : 'all';
 
 // Build the payments query with filters
 $query = "
-    SELECT p.id, p.tenant_id, p.amount, p.invoice, p.payment_method, 
+    SELECT p.id, p.tenant_id, p.amount, p.payment_method, 
            p.date_paid, p.payment_status, p.outstanding_balance, p.late_fee,
            CONCAT(t.lastname, ', ', t.firstname, ' ', COALESCE(t.middlename, '')) AS tenant_name,
            h.house_no
@@ -76,7 +75,6 @@ $total_outstanding = $conn->query("SELECT SUM(outstanding_balance) FROM payments
                         <li class="breadcrumb-item"><a href="index.php?page=home">Dashboard</a></li>
                         <li class="breadcrumb-item active">Payments</li>
                     </ol>
-
 
                     <!-- Filters and Add Payment -->
                     <div class="card mb-4">
