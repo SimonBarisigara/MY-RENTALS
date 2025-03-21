@@ -1,12 +1,6 @@
 <?php
 include('db_connect.php');
 
-// Start output buffering to prevent headers issues with JSON
-ob_start();
-
-// Ensure JSON response
-header('Content-Type: application/json');
-
 $response = ['success' => false, 'message' => ''];
 
 // Check if cart has items

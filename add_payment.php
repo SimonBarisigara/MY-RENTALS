@@ -1,79 +1,125 @@
 <?php
+// payment_processor.php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 require_once 'db_connect.php';
 
-// CSRF Token Generation
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
-
-// Function to validate date format (YYYY-MM-DD) and check if it's a past date
-function isValidDate($date) {
-    return preg_match("/^\d{4}-\d{2}-\d{2}$/", $date) && strtotime($date) <= time();
-}
-
-// Process payment submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
-    header('Content-Type: application/json');
-    ob_clean();
-
-    // CSRF Token Validation
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid CSRF token']);
-        exit;
+class PaymentProcessor {
+    private $conn;
+    
+    public function __construct($conn) {
+        $this->conn = $conn;
+        $this->initializeCsrfToken();
     }
-
-    // Input Validation and Sanitization
-    $tenant_id = filter_input(INPUT_POST, 'tenant_id', FILTER_VALIDATE_INT);
-    $amount = filter_input(INPUT_POST, 'amount', FILTER_VALIDATE_FLOAT);
-    $payment_method = htmlspecialchars(trim($_POST['payment_method'] ?? ''));
-    $start_date = $_POST['start_date'] ?? '';
-    $end_date = $_POST['end_date'] ?? '';
-
-    // Check required fields
-    if (!$tenant_id || !$amount || !$payment_method || !$start_date || !$end_date) {
-        echo json_encode(['status' => 'error', 'message' => 'All fields are required']);
-        exit;
+    
+    private function initializeCsrfToken() {
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
     }
-
-    // Validate dates
-    if (!isValidDate($start_date) || !isValidDate($end_date)) {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid or future date provided']);
-        exit;
+    
+    private function isValidDate($date) {
+        return preg_match("/^\d{4}-\d{2}-\d{2}$/", $date) && strtotime($date) <= time();
     }
-
-    try {
-        $conn->begin_transaction();
-
-        // Fetch tenant details
-        $stmt = $conn->prepare("SELECT t.id, t.house_no, h.price 
-                              FROM tenants t 
-                              JOIN houses h ON t.house_no = h.house_no 
-                              WHERE t.id = ? AND t.status = 1");
+    
+    public function processPayment() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_POST['save_payment'])) {
+            return;
+        }
+        
+        header('Content-Type: application/json');
+        ob_clean();
+        
+        // CSRF Validation
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+            $this->sendJsonResponse('error', 'Invalid CSRF token');
+            return;
+        }
+        
+        // Input Validation
+        $tenant_id = filter_input(INPUT_POST, 'tenant_id', FILTER_VALIDATE_INT);
+        $amount = filter_input(INPUT_POST, 'amount', FILTER_VALIDATE_FLOAT);
+        $payment_method = htmlspecialchars(trim($_POST['payment_method'] ?? ''));
+        $start_date = $_POST['start_date'] ?? '';
+        $end_date = $_POST['end_date'] ?? '';
+        
+        if (!$tenant_id || !$amount || !$payment_method || !$start_date || !$end_date) {
+            $this->sendJsonResponse('error', 'All fields are required');
+            return;
+        }
+        
+        if (!$this->isValidDate($start_date) || !$this->isValidDate($end_date)) {
+            $this->sendJsonResponse('error', 'Invalid or future date provided');
+            return;
+        }
+        
+        try {
+            $this->conn->begin_transaction();
+            
+            // Get tenant details
+            $tenant = $this->getTenantDetails($tenant_id);
+            if (!$tenant) {
+                throw new Exception('Tenant not found or inactive');
+            }
+            
+            // Calculate previous payments
+            $paid_amount = $this->getPreviousPayments($tenant_id, $start_date, $end_date);
+            $outstanding_balance = max(0, $tenant['price'] - ($paid_amount + $amount));
+            $payment_status = $outstanding_balance <= 0 ? 'paid' : 'partial';
+            
+            // Record payment
+            $this->insertPayment(
+                $tenant_id, 
+                $tenant['house_no'], 
+                $amount, 
+                $payment_method,
+                $outstanding_balance, 
+                $payment_status, 
+                $start_date, 
+                $end_date
+            );
+            
+            // Update tenant status
+            $this->updateTenantStatus($tenant_id, $payment_status);
+            
+            $this->conn->commit();
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            
+            $this->sendJsonResponse('success', 'Payment recorded successfully', [
+                'new_csrf_token' => $_SESSION['csrf_token']
+            ]);
+            
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            error_log("Payment Error: " . $e->getMessage());
+            $this->sendJsonResponse('error', 'Failed to record payment: ' . $e->getMessage());
+        }
+    }
+    
+    private function getTenantDetails($tenant_id) {
+        $stmt = $this->conn->prepare("SELECT t.id, t.house_no, h.price 
+                                    FROM tenants t 
+                                    JOIN houses h ON t.house_no = h.house_no 
+                                    WHERE t.id = ? AND t.status = 1");
         $stmt->bind_param("i", $tenant_id);
         $stmt->execute();
-        $tenant = $stmt->get_result()->fetch_assoc();
-
-        if (!$tenant) {
-            throw new Exception('Tenant not found or inactive');
-        }
-
-        // Calculate previous payments
-        $stmt = $conn->prepare("SELECT SUM(amount) AS total_paid 
-                              FROM payments 
-                              WHERE tenant_id = ? AND period_start = ? AND period_end = ?");
+        return $stmt->get_result()->fetch_assoc();
+    }
+    
+    private function getPreviousPayments($tenant_id, $start_date, $end_date) {
+        $stmt = $this->conn->prepare("SELECT SUM(amount) AS total_paid 
+                                    FROM payments 
+                                    WHERE tenant_id = ? AND period_start = ? AND period_end = ?");
         $stmt->bind_param("iss", $tenant_id, $start_date, $end_date);
         $stmt->execute();
-        $paid_amount = $stmt->get_result()->fetch_assoc()['total_paid'] ?? 0;
-
-        $outstanding_balance = max(0, $tenant['price'] - ($paid_amount + $amount));
-        $payment_status = $outstanding_balance <= 0 ? 'paid' : 'partial';
-
-        // Insert payment record
-        $stmt = $conn->prepare(
+        return $stmt->get_result()->fetch_assoc()['total_paid'] ?? 0;
+    }
+    
+    private function insertPayment($tenant_id, $house_no, $amount, $payment_method, 
+                                 $outstanding_balance, $payment_status, $start_date, $end_date) {
+        $stmt = $this->conn->prepare(
             "INSERT INTO payments (
                 tenant_id, house_no, amount, payment_method, 
                 outstanding_balance, payment_status, period_start, 
@@ -82,40 +128,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
         );
         $stmt->bind_param(
             "iisdssss",
-            $tenant_id, $tenant['house_no'], $amount, $payment_method,
+            $tenant_id, $house_no, $amount, $payment_method,
             $outstanding_balance, $payment_status, $start_date, $end_date
         );
         $stmt->execute();
-
-        // Update tenant payment status
-        $stmt = $conn->prepare("UPDATE tenants SET payment_status = ? WHERE id = ?");
+    }
+    
+    private function updateTenantStatus($tenant_id, $payment_status) {
+        $stmt = $this->conn->prepare("UPDATE tenants SET payment_status = ? WHERE id = ?");
         $stmt->bind_param("si", $payment_status, $tenant_id);
         $stmt->execute();
-
-        $conn->commit();
-
-        // Regenerate CSRF token
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-
-        echo json_encode([
-            'status' => 'success',
-            'message' => 'Payment recorded successfully',
-            'new_csrf_token' => $_SESSION['csrf_token']
-        ]);
-        exit;
-
-    } catch (Exception $e) {
-        $conn->rollback();
-        error_log("Payment Error: " . $e->getMessage());
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'Failed to record payment: ' . $e->getMessage()
-        ]);
+    }
+    
+    private function sendJsonResponse($status, $message, $additional = []) {
+        $response = array_merge(['status' => $status, 'message' => $message], $additional);
+        echo json_encode($response);
         exit;
     }
 }
+
+$processor = new PaymentProcessor($conn);
+$processor->processPayment();
 ?>
 
+<!-- payment_form.php -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -151,8 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
                             <i class="fas fa-file-invoice me-2"></i> New Payment
                         </div>
                         <div class="card-body">
-                            <form id="paymentForm" method="POST" novalidate>
-                                <input type="hidden" name="csrf_token" id="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                            <form id="paymentForm" method="POST" action="payment_processor.php" novalidate>
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                                 <input type="hidden" name="save_payment" value="1">
 
                                 <div class="row g-3 mb-3">
@@ -285,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
                 const toastHeader = $('#toastNotification .toast-header');
 
                 $.ajax({
-                    url: window.location.href,
+                    url: $(this).attr('action'),
                     method: 'POST',
                     data: new FormData(this),
                     contentType: false,
@@ -299,7 +335,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
                         toast.show();
 
                         if (response.status === 'success') {
-                            $('#csrf_token').val(response.new_csrf_token);
+                            $('input[name="csrf_token"]').val(response.new_csrf_token);
                             setTimeout(() => location.href = 'index.php?page=payments', 2000);
                         }
                     },

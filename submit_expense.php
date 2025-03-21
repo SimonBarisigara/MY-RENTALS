@@ -1,7 +1,6 @@
 <?php
 include('db_connect.php');
 
-
 // Validate input
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $category_id = isset($_POST['category_id']) ? (int)$_POST['category_id'] : 0;
@@ -11,7 +10,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($category_id <= 0 || $item_id <= 0 || $quantity <= 0) {
         $_SESSION['error'] = "Invalid input. Please fill all fields correctly.";
-        header("Location: add_expense.php");
         exit();
     }
 

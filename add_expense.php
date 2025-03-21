@@ -1,13 +1,18 @@
 <?php
 include 'db_connect.php';
 
+// Enable error reporting for debugging
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 // Fetch expense categories and items
 $categories = $conn->query("SELECT * FROM expense_categories ORDER BY category_name ASC")->fetch_all(MYSQLI_ASSOC);
 $items = $conn->query("SELECT * FROM expense_items ORDER BY item_name ASC")->fetch_all(MYSQLI_ASSOC);
 
 // Handle AJAX form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
+    ob_clean();
 
     // Add Item to Cart
     if (!isset($_POST['finalize']) && !isset($_POST['remove_items'])) {
@@ -18,24 +23,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total_amount = floatval($_POST['total_amount']);
         $description = htmlspecialchars(trim($_POST['description'] ?? ''));
 
-        // Handle file upload
-        $receipt = '';
-        if (isset($_FILES['receipt']) && $_FILES['receipt']['error'] === UPLOAD_ERR_OK) {
-            $upload_dir = 'uploads/';
-            if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
-            $receipt = $upload_dir . basename($_FILES['receipt']['name']);
-            if (!move_uploaded_file($_FILES['receipt']['tmp_name'], $receipt)) {
-                echo json_encode(['status' => 'error', 'message' => 'Failed to upload receipt']);
-                exit;
-            }
-        }
-
         $sql = "INSERT INTO expense_cart (category_id, item_id, quantity, total_amount, description, receipt) VALUES (?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("iiidss", $category_id, $item_id, $quantity, $total_amount, $description, $receipt);
 
         if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => 'Item added to cart successfully!']);
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Item added to cart successfully!',
+                'cart_html' => getCartHtml($conn) // Fetch updated cart HTML
+            ]);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Error: ' . $stmt->error]);
         }
@@ -51,9 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $cart_ids = array_map('intval', $_POST['cart_ids']);
         $cart_ids_str = implode(',', $cart_ids);
 
+        // Use prepared statement for DELETE query
         $sql = "DELETE FROM expense_cart WHERE cart_id IN ($cart_ids_str)";
         if ($conn->query($sql)) {
-            echo json_encode(['status' => 'success', 'message' => 'Selected items removed successfully!']);
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Selected items removed successfully!',
+                'cart_html' => getCartHtml($conn) // Fetch updated cart HTML
+            ]);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Error: ' . $conn->error]);
         }
@@ -66,12 +68,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SELECT category_id, item_id, quantity, total_amount, description, receipt FROM expense_cart";
         if ($conn->query($sql)) {
             $conn->query("DELETE FROM expense_cart"); // Clear the cart
-            echo json_encode(['status' => 'success', 'message' => 'Expenses submitted successfully! Cart cleared.']);
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Expenses submitted successfully! Cart cleared.',
+                'cart_html' => getCartHtml($conn) // Fetch updated cart HTML
+            ]);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Error: ' . $conn->error]);
         }
         exit;
     }
+}
+
+// Function to fetch and generate cart HTML
+function getCartHtml($conn) {
+    $cart_items = $conn->query("SELECT c.cart_id, i.item_name, c.quantity, c.total_amount 
+                                FROM expense_cart c
+                                INNER JOIN expense_items i ON c.item_id = i.item_id")->fetch_all(MYSQLI_ASSOC);
+    $cart_html = '';
+    $total_amount = 0;
+
+    if (!empty($cart_items)) {
+        foreach ($cart_items as $row) {
+            $cart_html .= "<tr>
+                <td><input type='checkbox' name='cart_ids[]' value='{$row['cart_id']}'></td>
+                <td>" . htmlspecialchars($row['item_name']) . "</td>
+                <td>{$row['quantity']}</td>
+                <td>" . number_format($row['total_amount'], 2) . "</td>
+            </tr>";
+            $total_amount += $row['total_amount'];
+        }
+        $cart_html .= "<tr><td colspan='3' class='text-end'><strong>Total</strong></td><td>" . number_format($total_amount, 2) . "</td></tr>";
+    } else {
+        $cart_html = '<tr><td colspan="4" class="text-center">Your cart is empty.</td></tr>';
+    }
+    return $cart_html;
 }
 
 // Fetch cart items for initial display
@@ -110,7 +141,7 @@ $cart_items = $conn->query("SELECT c.cart_id, i.item_name, c.quantity, c.total_a
                         <a class="nav-link" href="index.php?page=payments">Payments</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" href="add_expense.php">Add Expense</a>
+                        <a class="nav-link active" href="index.php?page=add_expense">Add Expense</a>
                     </li>
                 </ul>
             </div>
@@ -222,102 +253,84 @@ $cart_items = $conn->query("SELECT c.cart_id, i.item_name, c.quantity, c.total_a
             </div>
         </div>
     </div>
+    $(document).ready(function() {
+    // Calculate total amount
+    function calculateTotalAmount() {
+        const unitCost = parseFloat($('#unit_cost').val()) || 0;
+        const quantity = parseFloat($('#quantity').val()) || 0;
+        $('#total_amount').val((unitCost * quantity).toFixed(2));
+    }
+    $('#unit_cost, #quantity').on('input', calculateTotalAmount);
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        $(document).ready(function() {
-            // Calculate total amount
-            function calculateTotalAmount() {
-                const unitCost = parseFloat($('#unit_cost').val()) || 0;
-                const quantity = parseFloat($('#quantity').val()) || 0;
-                $('#total_amount').val((unitCost * quantity).toFixed(2));
+    // Select all checkboxes
+    $('#selectAll').on('change', function() {
+        $('input[name="cart_ids[]"]').prop('checked', this.checked);
+    });
+
+    // Show Bootstrap alert
+    function showAlert(message, type) {
+        const alertHtml = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        $('#alertContainer').html(alertHtml);
+        setTimeout(() => $('.alert').alert('close'), 3000);
+    }
+
+    // AJAX for Add Item
+    $('#expenseForm').on('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+
+        $.ajax({
+            url: 'index.php?page=add_expense',
+            method: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            dataType: 'json',
+            success: function(response) {
+                showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
+                if (response.status === 'success') {
+                    $('#cartBody').html(response.cart_html); // Update cart
+                    $('#expenseForm')[0].reset(); // Reset form
+                    $('#total_amount').val(''); // Clear readonly field
+                }
+            },
+            error: function(xhr) {
+                const errorMessage = xhr.responseJSON?.message || 'An error occurred';
+                showAlert(errorMessage, 'danger');
             }
-            $('#unit_cost, #quantity').on('input', calculateTotalAmount);
-
-            // Select all checkboxes
-            $('#selectAll').on('change', function() {
-                $('input[name="cart_ids[]"]').prop('checked', this.checked);
-            });
-
-            // Show Bootstrap alert
-            function showAlert(message, type) {
-                const alertHtml = `
-                    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                        ${message}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>`;
-                $('#alertContainer').html(alertHtml);
-                // Auto-dismiss after 3 seconds
-                setTimeout(() => {
-                    $('.alert').alert('close');
-                }, 3000);
-            }
-
-            // Fetch and update cart items
-            function fetchCartItems() {
-                $.get('fetch_cart.php', function(data) {
-                    $('#cartBody').html(data);
-                });
-            }
-
-            // AJAX for Add Item
-            $('#expenseForm').on('submit', function(e) {
-                e.preventDefault();
-                const formData = new FormData(this);
-
-                $.ajax({
-                    url: '',
-                    method: 'POST',
-                    data: formData,
-                    contentType: false,
-                    processData: false,
-                    dataType: 'json',
-                    success: function(response) {
-                        showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
-                        if (response.status === 'success') {
-                            fetchCartItems(); // Update cart dynamically
-                            $('#expenseForm')[0].reset(); // Reset form
-                        }
-                    },
-                    error: function(xhr) {
-                        const errorMessage = xhr.responseJSON?.message || 'An error occurred';
-                        showAlert(errorMessage, 'danger');
-                    }
-                });
-            });
-
-            // AJAX for Remove Items and Finalize Expenses
-            $('#cartForm').on('submit', function(e) {
-                e.preventDefault();
-                const formData = new FormData(this);
-                const action = e.originalEvent.submitter.name;
-
-                $.ajax({
-                    url: '',
-                    method: 'POST',
-                    data: formData,
-                    contentType: false,
-                    processData: false,
-                    dataType: 'json',
-                    success: function(response) {
-                        showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
-                        if (response.status === 'success') {
-                            if (action === 'finalize') {
-                                fetchCartItems(); // Clear cart display immediately
-                                $('#cartBody').html('<tr><td colspan="4" class="text-center">Your cart is empty.</td></tr>');
-                            } else {
-                                fetchCartItems(); // Update cart after remove
-                            }
-                        }
-                    },
-                    error: function(xhr) {
-                        const errorMessage = xhr.responseJSON?.message || 'An error occurred';
-                        showAlert(errorMessage, 'danger');
-                    }
-                });
-            });
         });
-    </script>
-</body>
-</html>
+    });
+
+    // AJAX for Remove Items and Finalize Expenses
+    $('#cartForm').on('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const action = e.originalEvent.submitter.name;
+
+        $.ajax({
+            url: 'index.php?page=add_expense',
+            method: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            dataType: 'json',
+            success: function(response) {
+                showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
+                if (response.status === 'success') {
+                    $('#cartBody').html(response.cart_html); // Update cart
+                    if (action === 'finalize') {
+                        $('#selectAll').prop('checked', false); // Reset select all
+                    }
+                }
+            },
+            error: function(xhr, status, error) {
+    const errorMessage = xhr.responseText || 'An error occurred';
+    showAlert(errorMessage, 'danger');
+}
+        });
+    });
+});
