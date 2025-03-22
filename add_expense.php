@@ -23,9 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total_amount = floatval($_POST['total_amount']);
         $description = htmlspecialchars(trim($_POST['description'] ?? ''));
 
-        $sql = "INSERT INTO expense_cart (category_id, item_id, quantity, total_amount, description, receipt) VALUES (?, ?, ?, ?, ?, ?)";
+        // Handle receipt upload
+        $receipt = null;
+        if (isset($_FILES['receipt']) && $_FILES['receipt']['error'] === UPLOAD_ERR_OK) {
+            $receipt_name = $_FILES['receipt']['name'];
+            $receipt_tmp_name = $_FILES['receipt']['tmp_name'];
+            $receipt_data = file_get_contents($receipt_tmp_name);
+            $receipt = base64_encode($receipt_data); // Store as base64
+        }
+
+        $sql = "INSERT INTO expense_cart (category_id, item_id, quantity, total_amount, description, receipt, receipt_name) VALUES (?, ?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iiidss", $category_id, $item_id, $quantity, $total_amount, $description, $receipt);
+        $stmt->bind_param("iiidsss", $category_id, $item_id, $quantity, $total_amount, $description, $receipt, $receipt_name);
 
         if ($stmt->execute()) {
             echo json_encode([
@@ -64,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Finalize Expenses
     if (isset($_POST['finalize'])) {
-        $sql = "INSERT INTO expenses (category_id, item_id, quantity, total_amount, description, receipt) 
-                SELECT category_id, item_id, quantity, total_amount, description, receipt FROM expense_cart";
+        $sql = "INSERT INTO expenses (category_id, item_id, quantity, total_amount, description, receipt, receipt_name) 
+                SELECT category_id, item_id, quantity, total_amount, description, receipt, receipt_name FROM expense_cart";
         if ($conn->query($sql)) {
             $conn->query("DELETE FROM expense_cart"); // Clear the cart
             echo json_encode([
@@ -118,6 +127,7 @@ $cart_items = $conn->query("SELECT c.cart_id, i.item_name, c.quantity, c.total_a
     <title>Add Expense - Rental Management System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.18/dist/sweetalert2.min.css">
     <style>
         .navbar { margin-bottom: 20px; }
         .card { box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
@@ -253,84 +263,93 @@ $cart_items = $conn->query("SELECT c.cart_id, i.item_name, c.quantity, c.total_a
             </div>
         </div>
     </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.18/dist/sweetalert2.all.min.js"></script>
+    <script>
     $(document).ready(function() {
-    // Calculate total amount
-    function calculateTotalAmount() {
-        const unitCost = parseFloat($('#unit_cost').val()) || 0;
-        const quantity = parseFloat($('#quantity').val()) || 0;
-        $('#total_amount').val((unitCost * quantity).toFixed(2));
-    }
-    $('#unit_cost, #quantity').on('input', calculateTotalAmount);
+        // Calculate total amount
+        function calculateTotalAmount() {
+            const unitCost = parseFloat($('#unit_cost').val()) || 0;
+            const quantity = parseFloat($('#quantity').val()) || 0;
+            $('#total_amount').val((unitCost * quantity).toFixed(2));
+        }
+        $('#unit_cost, #quantity').on('input', calculateTotalAmount);
 
-    // Select all checkboxes
-    $('#selectAll').on('change', function() {
-        $('input[name="cart_ids[]"]').prop('checked', this.checked);
-    });
-
-    // Show Bootstrap alert
-    function showAlert(message, type) {
-        const alertHtml = `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>`;
-        $('#alertContainer').html(alertHtml);
-        setTimeout(() => $('.alert').alert('close'), 3000);
-    }
-
-    // AJAX for Add Item
-    $('#expenseForm').on('submit', function(e) {
-        e.preventDefault();
-        const formData = new FormData(this);
-
-        $.ajax({
-            url: 'index.php?page=add_expense',
-            method: 'POST',
-            data: formData,
-            contentType: false,
-            processData: false,
-            dataType: 'json',
-            success: function(response) {
-                showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
-                if (response.status === 'success') {
-                    $('#cartBody').html(response.cart_html); // Update cart
-                    $('#expenseForm')[0].reset(); // Reset form
-                    $('#total_amount').val(''); // Clear readonly field
-                }
-            },
-            error: function(xhr) {
-                const errorMessage = xhr.responseJSON?.message || 'An error occurred';
-                showAlert(errorMessage, 'danger');
-            }
+        // Select all checkboxes
+        $('#selectAll').on('change', function() {
+            $('input[name="cart_ids[]"]').prop('checked', this.checked);
         });
-    });
 
-    // AJAX for Remove Items and Finalize Expenses
-    $('#cartForm').on('submit', function(e) {
-        e.preventDefault();
-        const formData = new FormData(this);
-        const action = e.originalEvent.submitter.name;
+        // Show SweetAlert alert
+        function showAlert(message, type) {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: type,
+                title: message,
+                showConfirmButton: false,
+                timer: 3000
+            });
+        }
 
-        $.ajax({
-            url: 'index.php?page=add_expense',
-            method: 'POST',
-            data: formData,
-            contentType: false,
-            processData: false,
-            dataType: 'json',
-            success: function(response) {
-                showAlert(response.message, response.status === 'success' ? 'success' : 'danger');
-                if (response.status === 'success') {
-                    $('#cartBody').html(response.cart_html); // Update cart
-                    if (action === 'finalize') {
-                        $('#selectAll').prop('checked', false); // Reset select all
+        // AJAX for Add Item
+        $('#expenseForm').on('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+
+            $.ajax({
+                url: 'index.php?page=add_expense',
+                method: 'POST',
+                data: formData,
+                contentType: false,
+                processData: false,
+                dataType: 'json',
+                success: function(response) {
+                    showAlert(response.message, response.status === 'success' ? 'success' : 'error');
+                    if (response.status === 'success') {
+                        $('#cartBody').html(response.cart_html); // Update cart
+                        $('#expenseForm')[0].reset(); // Reset form
+                        $('#total_amount').val(''); // Clear readonly field
                     }
+                },
+                error: function(xhr) {
+                    const errorMessage = xhr.responseJSON?.message || 'An error occurred';
+                    showAlert(errorMessage, 'error');
                 }
-            },
-            error: function(xhr, status, error) {
-    const errorMessage = xhr.responseText || 'An error occurred';
-    showAlert(errorMessage, 'danger');
-}
+            });
+        });
+
+        // AJAX for Remove Items and Finalize Expenses
+        $('#cartForm').on('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const action = e.originalEvent.submitter.name;
+
+            $.ajax({
+                url: 'index.php?page=add_expense',
+                method: 'POST',
+                data: formData,
+                contentType: false,
+                processData: false,
+                dataType: 'json',
+                success: function(response) {
+                    showAlert(response.message, response.status === 'success' ? 'success' : 'error');
+                    if (response.status === 'success') {
+                        $('#cartBody').html(response.cart_html); // Update cart
+                        if (action === 'finalize') {
+                            $('#selectAll').prop('checked', false); // Reset select all
+                        }
+                    }
+                },
+                error: function(xhr) {
+                    const errorMessage = xhr.responseJSON?.message || 'An error occurred';
+                    showAlert(errorMessage, 'error');
+                }
+            });
         });
     });
-});
+    </script>
+</body>
+</html>
